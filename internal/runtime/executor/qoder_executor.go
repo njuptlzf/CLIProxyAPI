@@ -22,17 +22,13 @@ import (
 
 // QoderExecutor executes requests against the Qoder API with COSY authentication
 type QoderExecutor struct {
-	cfg        *config.Config
-	httpClient *http.Client
+	cfg *config.Config
 }
 
 // NewQoderExecutor creates a new Qoder executor
 func NewQoderExecutor(cfg *config.Config) *QoderExecutor {
 	return &QoderExecutor{
 		cfg: cfg,
-		httpClient: &http.Client{
-			Timeout: 180 * time.Second,
-		},
 	}
 }
 
@@ -189,11 +185,12 @@ func (e *QoderExecutor) ExecuteStream(ctx context.Context, authRecord *cliproxya
 	httpReq.Header.Set("X-Version", headers.XVersion)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	// Send request
-	httpResp, err := e.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
+// Send request
+httpClient := newProxyAwareHTTPClient(ctx, e.cfg, nil, 0)
+httpResp, err := httpClient.Do(httpReq)
+if err != nil {
+	return nil, fmt.Errorf("request failed: %w", err)
+}
 
 	if httpResp.StatusCode != http.StatusOK {
 		defer func() { _ = httpResp.Body.Close() }()
@@ -279,6 +276,10 @@ func (e *QoderExecutor) ExecuteStream(ctx context.Context, authRecord *cliproxya
 				continue
 			}
 			out <- cliproxyexecutor.StreamChunk{Payload: chunkBytes}
+		}
+		// Check for scanner errors
+		if err := scanner.Err(); err != nil {
+			out <- cliproxyexecutor.StreamChunk{Err: fmt.Errorf("scanner error: %w", err)}
 		}
 	}()
 
